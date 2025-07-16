@@ -59,9 +59,10 @@ class TokenData(BaseSchema):
     email: Optional[str] = None
     user_id: Optional[int] = None
 
-class Login(BaseSchema):
+class UserLogin(BaseSchema):
     email: str
-    password: str 
+    password: str
+    
     
 __all__ = [
     "UserBase", "UserCreate", "UserUpdate", "UserInDB", "UserResponse",
