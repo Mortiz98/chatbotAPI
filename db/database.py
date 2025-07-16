@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
-from .config import settings
+from core.config import settings
 
 # Crear el motor de SQLAlchemy con la URL de la base de datos
 engine = create_engine(

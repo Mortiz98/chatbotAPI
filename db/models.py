@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from core.database import Base
+from db.database import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -41,4 +41,4 @@ class ChatSession(Base):
     
     # Relaciones
     user = relationship("User", back_populates="chat_sessions")
-    messages = relationship("Message", back_populates="session") 
+    messages = relationship("Message", back_populates="session")
