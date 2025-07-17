@@ -75,13 +75,35 @@ def get_current_user_info(
 @router.post("/refresh", response_model=Token)
 def refresh_token(
     response: Response,
-    refresh_token: str = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> Token:
     """
     Renueva el token de acceso usando el token de actualización.
     """
-    # La lógica de renovación ya está implementada en get_current_user
-    return {"message": "Token renovado exitosamente"}
+    auth_service = AuthService(db)
+    tokens = auth_service.refresh_access_token(current_user.id)
+    
+    # Actualizar cookies seguras
+    response.set_cookie(
+        key="access_token",
+        value=tokens.access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=1800  # 30 minutos
+    )
+    
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens.refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=86400  # 24 horas
+    )
+    
+    return tokens
 
 
 

@@ -62,7 +62,7 @@ class AuthService:
                 detail="Credenciales incorrectas"
             )
 
-        if not verify_password(user_data.password, user.hashed_password):
+        if not verify_password(user_data.password, str(user.hashed_password)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Credenciales incorrectas"
@@ -92,7 +92,7 @@ class AuthService:
         """
         user = self.db.query(models.User).filter(models.User.id == user_id).first()
         if user:
-            user.updated_at = datetime.utcnow()
+            setattr(user, 'updated_at', datetime.utcnow())
             self.db.commit()
 
     def deactivate_user(self, user_id: int) -> None:
@@ -101,9 +101,36 @@ class AuthService:
         """
         user = self.db.query(models.User).filter(models.User.id == user_id).first()
         if user:
-            user.is_active = False
-            user.updated_at = datetime.utcnow()
+            setattr(user, 'is_active', False)
+            setattr(user, 'updated_at', datetime.utcnow())
             self.db.commit()
+
+    def refresh_access_token(self, user_id: int) -> Token:
+        """
+        Genera un nuevo token de acceso y de actualización.
+        """
+        user = self.db.query(models.User).filter(models.User.id == user_id).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario no encontrado"
+            )
+
+        if not bool(user.is_active):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario inactivo"
+            )
+
+        # Generar nuevos tokens
+        access_token = create_access_token({"user_id": user.id})
+        refresh_token = create_refresh_token({"user_id": user.id})
+
+        return Token(
+            access_token=access_token,
+            refresh_token=refresh_token
+        )
 
 
 
