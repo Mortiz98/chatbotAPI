@@ -76,5 +76,10 @@ def get_current_user(access_token: str = Cookie(None), db: Session = Depends(get
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     
-    return payload
+    return user
+
+
+    
+    
+    
 
