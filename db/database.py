@@ -1,3 +1,4 @@
+from multiprocessing.connection import Client
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -22,11 +23,6 @@ def get_db() -> Generator[Session, None, None]:
     
     Yields:
         Session: Sesión de SQLAlchemy para interactuar con la base de datos.
-        
-    Example:
-        @app.get("/items/")
-        def read_items(db: Session = Depends(get_db)):
-            return db.query(Item).all()
     """
     db = SessionLocal()
     try:

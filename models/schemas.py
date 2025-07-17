@@ -67,5 +67,5 @@ class UserLogin(BaseSchema):
 __all__ = [
     "UserBase", "UserCreate", "UserUpdate", "UserInDB", "UserResponse",
     "MessageBase", "MessageCreate", "MessageInDB", "MessageResponse", "ChatSession",
-    "Token", "TokenData", "Login"
+    "Token", "TokenData", "UserLogin"
 ] 
