@@ -36,7 +36,7 @@ class MessageBase(BaseSchema):
 
 class MessageCreate(MessageBase):
     user_id: int
-    
+    session_id: Optional[int] = None
 
 class MessageInDB(MessageBase, TimestampSchema):
     id: int
