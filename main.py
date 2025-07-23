@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import ai_router
-from routers.ai_router import router as auth_router
+from routers.auth_router import router as auth_router
+from routers.ai_router import router as ai_router
 from db.database import Base, engine
 
 # Crear las tablas en la base de datos
@@ -24,7 +24,7 @@ app.add_middleware(
 )
 
 # Incluir routers
-app.include_router(ai_router.router)
+app.include_router(ai_router)
 app.include_router(auth_router)
 @app.get("/")
 async def root():

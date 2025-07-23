@@ -22,6 +22,7 @@ class AIService:
             started_at=datetime.utcnow()
         )
         
+
         try:
             self.db.add(db_session)
             self.db.commit()
