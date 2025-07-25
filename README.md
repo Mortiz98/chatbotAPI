@@ -21,7 +21,7 @@ An API for a chatbot integrated with OpenAI, built using FastAPI and SQLAlchemy.
 1. Clone the repository:
 
 ```bash
-git clone <repository-url>
+git clone <https://github.com/Mortiz98/chatbotAPI.git>
 cd chatbot
 ```
 
@@ -42,7 +42,6 @@ pip install -r requirements.txt
 
 ```bash
 # Create .env file
-cp .env.example .env
 # Edit .env with your credentials
 ```
 
