@@ -1,37 +1,34 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers.auth_router import router as auth_router
-from routers.ai_router import router as ai_router
-from db.database import Base, engine
-
-# Crear las tablas en la base de datos
-Base.metadata.create_all(bind=engine)
+from routers.document_router import router as document_router
+from routers.chat_router import router as chat_router
 
 app = FastAPI(
     title="ChatBot API",
-    description="API para chatbot con integración de OpenAI",
-    version="1.0.0"
+    description="Chatbot with vector knowledge base (Qdrant)",
+    version="1.0.0",
 )
 
-# Configurar CORS
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especifica los orígenes permitidos
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Incluir routers
-app.include_router(ai_router)
-app.include_router(auth_router)
+# Include routers
+app.include_router(document_router)
+app.include_router(chat_router)
+
+
 @app.get("/")
 async def root():
     return {
-        "mensaje": "¡Bienvenido a la API del ChatBot!",
-        "documentacion": "/docs",
-        "redoc": "/redoc"
+        "message": "Welcome to ChatBot API",
+        "qdrant": "http://localhost:6333/dashboard",
+        "docs": "/docs",
+        "redoc": "/redoc",
     }
-
-
