@@ -1,162 +1,96 @@
-# 🤖 ChatBot API with OpenAI Integration
+# ChatBot API with Qdrant
 
-An API for a chatbot integrated with OpenAI, built using FastAPI and SQLAlchemy.
+A FastAPI-based chatbot with vector search knowledge base using Qdrant.
 
-## 🚀 Features
+## Features
 
-* 💬 Natural Language Processing with OpenAI
-* 🔐 Full JWT-based authentication system
-* 📜 Persistent conversation history
-* 🔄 Chat session management
-* 🛡️ Secure implementation using bcrypt and safe cookies
+- **Vector Search**: Semantic search using Qdrant and OpenRouter embeddings
+- **PDF Ingestion**: Process and index PDF documents
+- **REST API**: FastAPI endpoints for search and document management
+- **Knowledge Base**: Search across indexed documents using natural language
 
-## 📋 Prerequisites
+## Requirements
 
-* Python 3.8 or higher
-* PostgreSQL (or SQLite for development)
-* Environment variables configured (see Configuration section)
+- Python 3.10+
+- Docker (for Qdrant)
+- OpenRouter API key
 
-## 🛠️ Installation
-
-1. Clone the repository:
+## Setup
 
 ```bash
-git clone <https://github.com/Mortiz98/chatbotAPI.git>
-cd chatbot
-```
-
-2. Create and activate a virtual environment:
-
-```bash
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+source venv/bin/activate
 
-3. Install dependencies:
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Install additional packages
+pip install qdrant-client python-dotenv requests pdfplumber
 ```
 
-4. Configure environment variables:
+## Running
+
+### 1. Start Qdrant (Docker)
 
 ```bash
-# Create .env file
-# Edit .env with your credentials
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
 ```
 
-## ⚙️ Configuration
+### 2. Configure environment
 
-Create a `.env` file in the project root with the following content:
-
-```env
-# JWT
-SECRET_KEY="your-secret-key"
-ALGORITHM="HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_MINUTES=1440
-
-# Database
-SQLALCHEMY_DATABASE_URL="postgresql://user:password@localhost/dbname"
-# For SQLite:
-# SQLALCHEMY_DATABASE_URL="sqlite:///./sql_app.db"
-
-# OpenAI
-OPENAI_API_KEY="your-openai-api-key"
+Create `.env` file:
+```bash
+OPENROUTER_API_KEY=sk-or-...  # Get from https://openrouter.ai/keys
+QDRANT_URL=http://localhost:6333
+QDRANT_COLLECTION=aprendizaje
 ```
 
-## 🚀 Running the Project
-
-Start the development server:
+### 3. Start API
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Access:
+## Endpoints
 
-* API: [http://localhost:8000](http://localhost:8000)
-* Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
-* ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Welcome message |
+| `GET /chat/search?q=...` | Search knowledge base |
+| `GET /chat/health` | Check Qdrant status |
+| `GET /chat/collections` | List Qdrant collections |
+| `GET /documents/list` | List indexed documents |
+| `POST /documents/ingest` | Upload and index PDF |
 
-## 📌 Main Endpoints
+## API Documentation
 
-### Authentication
+Once running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **Qdrant Dashboard**: http://localhost:6333/dashboard
 
-* `POST /auth/register`: Register a new user
-* `POST /auth/login`: Log in
-* `POST /auth/logout`: Log out
-* `GET /auth/me`: Get current user
-* `POST /auth/refresh`: Refresh access token
+## Ingesting Documents
 
-### Chat
+```python
+from services.document_processor import DocumentProcessor
+from services.vector_service import VectorService
 
-* `POST /chat/start`: Start a new chat session
-* `POST /chat/message`: Send a message
-* `GET /chat/history`: Get chat history
-* `GET /chat/session/{session_id}`: Get a specific session
+processor = DocumentProcessor()
+chunks = processor.process_pdf("documents/your_file.pdf")
 
-## 💄 Database Structure
+vector_service = VectorService()
+vector_service.create_collection_if_not_exists()
+vector_service.add_documents_batch(chunks)
+```
 
-### Users
+## Tech Stack
 
-* `id`: Integer (Primary Key)
-* `email`: String (Unique)
-* `username`: String (Unique)
-* `hashed_password`: String
-* `is_active`: Boolean
-* `created_at`: DateTime
-* `updated_at`: DateTime
+- **FastAPI** - Web framework
+- **Qdrant** - Vector database
+- **OpenRouter** - Embeddings API
+- **pdfplumber** - PDF parsing
 
-### Messages
+## License
 
-* `id`: Integer (Primary Key)
-* `content`: String
-* `is_bot`: Boolean
-* `created_at`: DateTime
-* `user_id`: Integer (Foreign Key)
-* `session_id`: Integer (Foreign Key)
-
-### ChatSessions
-
-* `id`: Integer (Primary Key)
-* `user_id`: Integer (Foreign Key)
-* `started_at`: DateTime
-* `ended_at`: DateTime
-
-## 🔒 Security
-
-* Passwords hashed with bcrypt
-* JWT-based authentication
-* Secure cookies (`httponly`, `samesite`)
-* Configurable CORS policy
-
-## 🛠️ Technologies Used
-
-* [FastAPI](https://fastapi.tiangolo.com/) – Web framework
-* [SQLAlchemy](https://www.sqlalchemy.org/) – ORM for Python
-* [Pydantic](https://docs.pydantic.dev/) – Data validation
-* [OpenAI API](https://platform.openai.com/) – NLP processing
-* [Python-Jose](https://python-jose.readthedocs.io/) – JWT implementation
-* [Passlib](https://passlib.readthedocs.io/) – Password hashing
-
-## 📜 Upcoming Features
-
-* [ ] Rate limiting
-* [ ] Unit and integration testing
-* [ ] Improved API documentation
-* [ ] CI/CD configuration
-* [ ] Caching for frequent responses
-* [ ] Support for multiple AI models
-
-## 👥 Contributing
-
-1. Fork the repository
-2. Create a new branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to your branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License – see the [LICENSE.md](LICENSE.md) file for details.
+MIT
