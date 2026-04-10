@@ -212,3 +212,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Local database
+*.db
+chatbot.db
+
+# Documents folder (your PDFs)
+documents/
+
