@@ -1,69 +1,97 @@
-# AGENTS.md - Chatbot con Qdrant
+# AGENTS.md - Document ChatBot (RAG)
 
-## Development Environment
+## Quick Start
 
 ```bash
 cd /home/mortiz/projects/chatbot
 source venv/bin/activate
+uvicorn main:app --reload
 ```
 
-## Run
+**Required: Qdrant must be running**
+```bash
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
+  -v qdrant_storage:/qdrant/storage qdrant/qdrant
+```
+
+## Architecture
+
+**RAG Flow**: Question → Search Qdrant → Get context → LLM generates answer (ONLY from context)
+
+```
+/chat/ask → AIService.process_message() → VectorService.search() → OpenRouter LLM
+```
+
+## Critical Environment Variables
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+OPENROUTER_API_KEY=sk-or-v1-...      # Required for embeddings + LLM
+SECRET_KEY=your-secret-key           # Required for JWT
+# OPENAI_MODEL defaults to "openai/gpt-3.5-turbo"
+# QDRANT_COLLECTION defaults to "aprendizaje"
 ```
 
-## Qdrant (required)
+## Key Endpoints (require auth cookie)
 
-Qdrant must be running in Docker:
-```bash
-docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
-```
+| Endpoint | What it does |
+|----------|--------------|
+| `POST /auth/login` | Returns httpOnly cookie with JWT |
+| `POST /chat/ask` | **Main RAG endpoint** - ask questions about documents |
+| `POST /documents/ingest` | Upload PDF → auto chunks + indexes in Qdrant |
+| `GET /documents/list` | Show indexed documents |
+| `GET /search/knowledge?q=...` | Direct Qdrant search (no LLM) |
 
-Dashboard: http://localhost:6333/dashboard
+## Router Prefixes (don't collide)
 
-## Environment Variables (.env)
+- `/auth/*` - Authentication
+- `/chat/*` - RAG chat endpoints
+- `/documents/*` - PDF management
+- `/search/*` - Direct vector search
 
-```bash
-OPENROUTER_API_KEY=sk-or-...  # Required for embeddings
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION=aprendizaje
-# Do not use PostgreSQL - disabled (use SQLite or remove the line)
-```
-
-## Key Structure
+## Key Files
 
 | File | Purpose |
 |------|---------|
-| `services/vector_service.py` | Qdrant + OpenRouter embeddings |
-| `services/document_processor.py` | PDF → chunks |
-| `routers/chat_router.py` | Search endpoints |
-| `routers/document_router.py` | Ingestion endpoints |
+| `services/ai_service.py` | RAG logic: search Qdrant + query OpenRouter LLM |
+| `services/vector_service.py` | Qdrant ops + OpenRouter embeddings (UUIDs, retry logic) |
+| `services/document_processor.py` | PDF → chunks with validation |
+| `routers/ai_router.py` | Chat endpoints, session ownership checks |
+| `core/rate_limit.py` | 100 req/hour per IP |
+| `core/security.py` | JWT from httpOnly cookies |
 
-## Useful Endpoints
+## Testing
 
-- `GET /chat/search?q=...` - Search knowledge base
-- `GET /chat/health` - Check Qdrant status
-- `GET /documents/list` - List indexed documents
-- `POST /documents/ingest` - Upload PDF
+```bash
+# Quick test
+./test_simple.sh
 
-## Ingest New PDFs
+# Or manual:
+curl -c cookies.txt -X POST http://localhost:8000/auth/login \
+  -d '{"email":"test@test.com","password":"password123"}'
 
-```python
-from services.document_processor import DocumentProcessor
-from services.vector_service import VectorService
-
-processor = DocumentProcessor()
-chunks = processor.process_pdf("documents/your_pdf.pdf")
-
-vector_service = VectorService()
-vector_service.create_collection_if_not_exists()
-vector_service.add_documents_batch(chunks)
+curl -b cookies.txt -X POST http://localhost:8000/chat/ask \
+  -H "Content-Type: application/json" \
+  -d '{"content":"What does the document say about X?"}'
 ```
 
-## Important Notes
+## Important Constraints
 
-- Do not use PostgreSQL - not required in current code
-- Embeddings use OpenRouter (not direct OpenAI)
-- Embedding model is `text-embedding-3-small` (1536 dimensions)
-- Qdrant collection is named `aprendizaje` by default
+- **RAG-only**: Bot ONLY answers from uploaded documents (not general knowledge)
+- **Auth required**: All chat/document endpoints need valid cookie
+- **Threshold 0.5**: Minimum similarity score for context retrieval
+- **Cookie secure=False**: Set for local HTTP dev (change to True in production)
+- **UUID document IDs**: Not sequential numbers
+- **SQLite default**: No PostgreSQL setup needed
+
+## Common Gotchas
+
+1. **401 Unauthorized**: Cookie expired or not sent. Re-login.
+2. **"No information" response**: Document not indexed OR similarity < 0.5
+3. **Rate limited**: 100 requests/hour per IP
+4. **Qdrant connection refused**: Start Docker container first
+
+## Models
+
+- **Embeddings**: `openai/text-embedding-3-small` (1536 dims)
+- **LLM**: Configurable via `OPENAI_MODEL` (default: `openai/gpt-3.5-turbo`)
+- **Provider**: OpenRouter (base_url: https://openrouter.ai/api/v1)
