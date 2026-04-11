@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Query
 from typing import List, Optional
 
+from qdrant_client import QdrantClient
+from core.config import settings
 from services.vector_service import VectorService
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/search", tags=["search"])
 
 
-@router.get("/search")
+@router.get("/knowledge")
 async def search_knowledge(
     q: str = Query(..., description="Search query"),
     limit: int = Query(5, description="Number of results"),
@@ -25,10 +27,7 @@ async def list_collections():
     """
     List available collections in Qdrant.
     """
-    from qdrant_client import QdrantClient
-    import os
-
-    client = QdrantClient(url=os.getenv("QDRANT_URL", "http://localhost:6333"))
+    client = QdrantClient(url=settings.QDRANT_URL)
     collections = client.get_collections()
 
     return {"collections": [c.name for c in collections.collections]}
@@ -39,11 +38,8 @@ async def health_check():
     """
     Check service status.
     """
-    from qdrant_client import QdrantClient
-    import os
-
     try:
-        client = QdrantClient(url=os.getenv("QDRANT_URL", "http://localhost:6333"))
+        client = QdrantClient(url=settings.QDRANT_URL)
         collections = client.get_collections()
         qdrant_status = "ok"
     except Exception as e:

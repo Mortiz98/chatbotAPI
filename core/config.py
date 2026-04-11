@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "aprendizaje")
 
+    # OpenRouter Model (format: "provider/model", e.g., "openai/gpt-3.5-turbo")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "openai/gpt-3.5-turbo")
+
+    # Rate Limiting
+    RATE_LIMIT_REQUESTS: int = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
+    RATE_LIMIT_WINDOW: int = int(os.getenv("RATE_LIMIT_WINDOW", "3600"))  # seconds
+
     class Config:
         env_file: str = ".env"
         extra: str = "ignore"

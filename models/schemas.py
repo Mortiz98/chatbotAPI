@@ -6,68 +6,100 @@ from datetime import datetime
 class BaseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+
 class TimestampSchema(BaseSchema):
     created_at: datetime
-    updated_at: Optional[datetime] = None 
+    updated_at: Optional[datetime] = None
+
 
 class UserBase(BaseSchema):
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50)
     is_active: bool = True
 
+
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
+
 
 class UserUpdate(BaseSchema):
     email: Optional[EmailStr] = None
     username: Optional[str] = Field(None, min_length=3, max_length=50)
     password: Optional[str] = Field(None, min_length=8)
 
+
 class UserInDB(UserBase, TimestampSchema):
     id: int
     hashed_password: str
 
+
 class UserResponse(UserBase, TimestampSchema):
     id: int
-    
+
+
 class MessageBase(BaseSchema):
     content: str = Field(..., min_length=1)
     is_bot: bool = False
+
 
 class MessageCreate(MessageBase):
     user_id: int
     session_id: Optional[int] = None
 
+
+class ChatRequest(BaseSchema):
+    """Schema for chat requests - user_id comes from auth token, not body"""
+
+    content: str = Field(..., min_length=1)
+    session_id: Optional[int] = None
+
+
 class MessageInDB(MessageBase, TimestampSchema):
     id: int
     user_id: int
+
 
 class MessageResponse(MessageBase, TimestampSchema):
     id: int
     user_id: int
 
+
 class ChatSession(BaseSchema):
     id: int
     messages: List[MessageResponse]
     started_at: datetime
-    ended_at: Optional[datetime] = None 
+    ended_at: Optional[datetime] = None
+
 
 class Token(BaseSchema):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
+
 class TokenData(BaseSchema):
     email: Optional[str] = None
     user_id: Optional[int] = None
 
+
 class UserLogin(BaseSchema):
     email: str
     password: str
-    
-    
+
+
 __all__ = [
-    "UserBase", "UserCreate", "UserUpdate", "UserInDB", "UserResponse",
-    "MessageBase", "MessageCreate", "MessageInDB", "MessageResponse", "ChatSession",
-    "Token", "TokenData", "UserLogin"
-] 
+    "UserBase",
+    "UserCreate",
+    "UserUpdate",
+    "UserInDB",
+    "UserResponse",
+    "MessageBase",
+    "MessageCreate",
+    "MessageInDB",
+    "MessageResponse",
+    "ChatSession",
+    "Token",
+    "TokenData",
+    "UserLogin",
+    "ChatRequest",
+]

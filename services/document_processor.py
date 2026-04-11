@@ -4,7 +4,7 @@ import re
 
 
 class DocumentProcessor:
-    """PDF document processor for chunking."""
+    """PDF document processor for chunking with automatic validation."""
 
     def __init__(self, chunk_size: int = 500, overlap: int = 50):
         self.chunk_size = chunk_size
@@ -21,35 +21,41 @@ class DocumentProcessor:
         return text
 
     def chunk_text(self, text: str) -> List[str]:
-        """Splits text into chunks with overlap."""
+        """
+        Splits text into chunks with overlap.
+        Automatically discards invalid chunks.
+        """
         chunks = []
         start = 0
+        text_length = len(text)
 
-        while start < len(text):
-            end = start + self.chunk_size
+        while start < text_length:
+            end = min(start + self.chunk_size, text_length)
 
-            if end < len(text):
-                last_newline = text.rfind("\n", start, end)
-                last_space = text.rfind(" ", start, end)
-                cut_point = max(last_newline, last_space)
-                if cut_point > start:
-                    end = cut_point
+            # Look for natural break points
+            if end < text_length:
+                # Try to find natural separators in order of preference
+                for sep in ["\n\n", "\n", ". ", " "]:
+                    pos = text.rfind(sep, start, end)
+                    if pos != -1 and pos > start:
+                        end = pos + len(sep)
+                        break
 
             chunk = text[start:end].strip()
-            if chunk:
+
+            # Validate chunk before adding - discard if invalid
+            if chunk and ChunkValidator.is_valid(chunk):
                 chunks.append(chunk)
 
-            start = (
-                end - self.overlap
-                if end - self.overlap > start
-                else start + self.chunk_size
-            )
+            # Advance with overlap
+            start = end - self.overlap if end - self.overlap > start else end
 
         return chunks
 
     def process_pdf(self, pdf_path: str, metadata: Dict = None) -> List[Dict]:
         """Processes a PDF and returns list of chunks with metadata."""
         text = self.extract_text_from_pdf(pdf_path)
+        text = self.clean_text(text)  # Clean BEFORE chunking
         chunks = self.chunk_text(text)
 
         filename = pdf_path.split("/")[-1]

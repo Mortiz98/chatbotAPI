@@ -1,10 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 import os
 from pathlib import Path
 
-from db.database import get_db
+from core.config import settings
+from core.logging_config import logger
 from services.document_processor import DocumentProcessor, ChunkValidator
 from services.vector_service import VectorService
 
@@ -14,21 +14,28 @@ DOCUMENTS_FOLDER = "documents"
 
 
 @router.post("/ingest")
-async def ingest_document(
-    file: UploadFile = File(...), collection: str = "aprendizaje"
-):
+async def ingest_document(file: UploadFile = File(...), collection: str = None):
     """
     Uploads a PDF, processes it and indexes it in Qdrant.
     """
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
+    # Use default collection from settings if not provided
+    if collection is None:
+        collection = settings.QDRANT_COLLECTION
+
     file_path = os.path.join(DOCUMENTS_FOLDER, file.filename)
 
     try:
+        # Ensure documents folder exists
+        Path(DOCUMENTS_FOLDER).mkdir(parents=True, exist_ok=True)
+
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
+
+        logger.info(f"Processing PDF: {file.filename}")
 
         processor = DocumentProcessor(chunk_size=500, overlap=50)
         chunks_data = processor.process_pdf(file_path)
@@ -51,6 +58,10 @@ async def ingest_document(
 
         point_ids = vector_service.add_documents_batch(valid_chunks)
 
+        logger.info(
+            f"Document indexed successfully: {file.filename} ({len(point_ids)} chunks)"
+        )
+
         return {
             "message": "Document processed and indexed successfully",
             "filename": file.filename,
@@ -59,16 +70,21 @@ async def ingest_document(
         }
 
     except Exception as e:
+        logger.error(f"Error processing document {file.filename}: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error processing document: {str(e)}"
         )
 
 
 @router.get("/list")
-async def list_documents(collection: str = "aprendizaje"):
+async def list_documents(collection: str = None):
     """
     Lists indexed documents in the collection.
     """
+    # Use default collection from settings if not provided
+    if collection is None:
+        collection = settings.QDRANT_COLLECTION
+
     try:
         vector_service = VectorService()
         vector_service.collection_name = collection
@@ -83,18 +99,25 @@ async def list_documents(collection: str = "aprendizaje"):
 
         return {"total_documents": len(docs), "sources": sources}
     except Exception as e:
+        logger.error(f"Error listing documents: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{source}")
-async def delete_document(source: str, collection: str = "aprendizaje"):
+async def delete_document(source: str, collection: str = None):
     """
     Deletes a document from the collection by filename.
     """
+    # Use default collection from settings if not provided
+    if collection is None:
+        collection = settings.QDRANT_COLLECTION
+
     try:
         vector_service = VectorService()
         vector_service.collection_name = collection
         deleted_count = vector_service.delete_by_source(source)
+
+        logger.info(f"Deleted document: {source} ({deleted_count} chunks)")
 
         return {
             "message": "Document deleted",
@@ -102,4 +125,5 @@ async def delete_document(source: str, collection: str = "aprendizaje"):
             "chunks_deleted": deleted_count,
         }
     except Exception as e:
+        logger.error(f"Error deleting document {source}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,18 +1,26 @@
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+import uuid
 from typing import List, Optional
-import os
 import requests
-from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    VectorParams,
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+)
 
-load_dotenv()
+from core.config import settings
+from core.logging_config import logger
 
 
 class VectorService:
     def __init__(self):
-        self.client = QdrantClient(url=os.getenv("QDRANT_URL", "http://localhost:6333"))
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-        self.collection_name = os.getenv("QDRANT_COLLECTION", "aprendizaje")
+        self.client = QdrantClient(url=settings.QDRANT_URL)
+        self.openrouter_api_key = settings.OPENROUTER_API_KEY
+        self.collection_name = settings.QDRANT_COLLECTION
 
     def create_collection_if_not_exists(self):
         """Creates collection if it doesn't exist."""
@@ -24,14 +32,21 @@ class VectorService:
                 self.collection_name,
                 vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
             )
-            print(f"✅ Collection '{self.collection_name}' created")
+            logger.info(f"Collection '{self.collection_name}' created")
         else:
-            print(f"ℹ️ Collection '{self.collection_name}' already exists")
+            logger.info(f"Collection '{self.collection_name}' already exists")
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     def get_embedding(self, text: str) -> List[float]:
-        """Generates embedding using OpenRouter."""
+        """Generates embedding using OpenRouter with retry logic."""
         if not self.openrouter_api_key:
             raise Exception("OPENROUTER_API_KEY not configured")
+
+        logger.info(f"Generating embedding for text: {text[:50]}...")
 
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -42,14 +57,17 @@ class VectorService:
 
         payload = {"model": "openai/text-embedding-3-small", "input": text}
 
-        response = requests.post(
-            "https://openrouter.ai/api/v1/embeddings", headers=headers, json=payload
-        )
-
-        if response.status_code != 200:
-            raise Exception(
-                f"OpenRouter error: {response.status_code} - {response.text}"
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/embeddings",
+                headers=headers,
+                json=payload,
+                timeout=30,
             )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"OpenRouter request failed: {str(e)}")
+            raise Exception(f"OpenRouter error: {str(e)}")
 
         return response.json()["data"][0]["embedding"]
 
@@ -57,9 +75,8 @@ class VectorService:
         """Adds a single document to the collection."""
         vector = self.get_embedding(text)
 
-        import time
-
-        point_id = int(time.time() * 1000)
+        # Use UUID instead of timestamp to avoid collisions
+        point_id = str(uuid.uuid4())
 
         self.client.upsert(
             collection_name=self.collection_name,
@@ -69,16 +86,17 @@ class VectorService:
                 )
             ],
         )
-        return str(point_id)
+
+        logger.info(f"Added document with ID: {point_id}")
+        return point_id
 
     def add_documents_batch(self, documents: List[dict]) -> List[str]:
         """Adds multiple documents to the collection."""
-        import time
-
         points = []
+
         for doc in documents:
             vector = self.get_embedding(doc["text"])
-            point_id = int(time.time() * 1000) + len(points)
+            point_id = str(uuid.uuid4())  # Unique UUID per document
             points.append(
                 PointStruct(
                     id=point_id,
@@ -89,6 +107,7 @@ class VectorService:
 
         if points:
             self.client.upsert(collection_name=self.collection_name, points=points)
+            logger.info(f"Indexed {len(points)} documents in batch")
 
         return [str(p.id) for p in points]
 
@@ -110,11 +129,11 @@ class VectorService:
             for r in results
         ]
 
-    def get_all_documents(self, limit: int = 100) -> List[dict]:
-        """Gets all documents."""
-        results = self.client.scroll(collection_name=self.collection_name, limit=limit)[
-            0
-        ]
+    def get_all_documents(self, limit: int = 100, offset: str = None) -> List[dict]:
+        """Gets all documents with optional pagination."""
+        results = self.client.scroll(
+            collection_name=self.collection_name, limit=limit, offset=offset
+        )[0]
 
         return [
             {
@@ -126,19 +145,24 @@ class VectorService:
         ]
 
     def delete_by_source(self, source: str) -> int:
-        """Deletes documents by source filename."""
-        results = self.client.scroll(collection_name=self.collection_name, limit=10000)[
-            0
-        ]
+        """Deletes documents by source filename using Qdrant filters."""
+        filter_condition = Filter(
+            must=[FieldCondition(key="source", match=MatchValue(value=source))]
+        )
 
-        ids_to_delete = []
-        for r in results:
-            if r.payload.get("source") == source:
-                ids_to_delete.append(r.id)
+        # First count how many documents match
+        results = self.client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=filter_condition,
+            limit=10000,
+        )[0]
 
-        if ids_to_delete:
+        count = len(results)
+
+        if count > 0:
             self.client.delete(
-                collection_name=self.collection_name, points_selector=ids_to_delete
+                collection_name=self.collection_name, points_selector=filter_condition
             )
+            logger.info(f"Deleted {count} documents from source: {source}")
 
-        return len(ids_to_delete)
+        return count
