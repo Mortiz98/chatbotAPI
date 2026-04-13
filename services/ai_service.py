@@ -3,6 +3,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from openai import OpenAI
 from fastapi import HTTPException, status
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from core.config import settings
 from core.logging_config import logger
@@ -28,7 +29,8 @@ class AIService:
         self.model = settings.OPENAI_MODEL
         self.vector_service = VectorService()
         # Mínimo score de similitud para considerar un resultado relevante (0-1)
-        self.similarity_threshold = 0.5  # Bajar threshold para detectar más resultados
+        # Bajamos el threshold para ser más permisivo y encontrar más contexto relevante
+        self.similarity_threshold = 0.3
 
     async def create_chat_session(self, user_id: int) -> ChatSession:
         """
@@ -117,6 +119,21 @@ class AIService:
             r for r in search_results if r["score"] >= self.similarity_threshold
         ]
 
+        # 1.5 CREAR SESIÓN SI NO EXISTE
+        if not session_id:
+            try:
+                new_session = models.ChatSession(
+                    user_id=user_id, started_at=datetime.utcnow()
+                )
+                self.db.add(new_session)
+                self.db.commit()
+                self.db.refresh(new_session)
+                session_id = new_session.id
+                logger.info(f"Created new session {session_id} for user {user_id}")
+            except Exception as e:
+                self.db.rollback()
+                logger.error(f"Error creating session: {str(e)}")
+
         # Guardar la pregunta del usuario en la base de datos
         user_message = models.Message(
             content=content,
@@ -138,40 +155,169 @@ class AIService:
                 detail="Error al guardar el mensaje",
             )
 
-        # 2. SI NO HAY CONTEXTO RELEVANTE, RESPONDER QUE NO SABE
+        # 2. OBTENER HISTORIAL DE CONVERSACIÓN (si hay sesión)
+        conversation_history = []
+        if session_id:
+            try:
+                # Excluir el mensaje actual que acabamos de guardar
+                previous_messages = (
+                    self.db.query(models.Message)
+                    .filter(
+                        models.Message.session_id == session_id,
+                        models.Message.id != user_message.id,
+                    )
+                    .order_by(models.Message.created_at.asc())
+                    .limit(10)  # Últimos 10 mensajes para contexto
+                    .all()
+                )
+                for msg in previous_messages:
+                    role = "assistant" if msg.is_bot else "user"
+                    conversation_history.append({"role": role, "content": msg.content})
+                logger.info(
+                    f"Retrieved {len(conversation_history)} messages from session {session_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not retrieve conversation history: {e}")
+
+        # 3. SI NO HAY CONTEXTO RELEVANTE, INTENTAR RECUPERAR CON BÚSQUEDA AMPLIA
         if not relevant_chunks:
             logger.info(f"No relevant context found for query: {content[:50]}...")
 
-            no_context_response = (
-                "Lo siento, no tengo información sobre eso en mi base de conocimiento. "
-                "Por favor, asegúrate de que el documento relevante haya sido subido e indexado."
-            )
+            # Intentar búsqueda más amplia con palabras clave individuales
+            search_terms = content.lower().split()
+            all_chunks = []
 
-            bot_message = models.Message(
-                content=no_context_response,
-                is_bot=True,
-                created_at=datetime.utcnow(),
-                user_id=user_id,
-                session_id=session_id,
-            )
+            for term in search_terms[:3]:  # Buscar con primeros 3 términos
+                if len(term) > 3:  # Solo términos significativos
+                    try:
+                        results = self.vector_service.search(term, limit=3)
+                        all_chunks.extend(results)
+                    except:
+                        pass
 
-            try:
-                self.db.add(bot_message)
-                self.db.commit()
-                self.db.refresh(bot_message)
-                return MessageResponse.model_validate(bot_message)
-            except Exception as e:
-                self.db.rollback()
-                logger.error(f"Error saving bot response: {str(e)}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Error al guardar la respuesta",
+            # Si encontramos algo relacionado, usarlo
+            if all_chunks:
+                # Ordenar por score y quitar duplicados
+                seen_ids = set()
+                relevant_chunks = []
+                for chunk in sorted(all_chunks, key=lambda x: x["score"], reverse=True):
+                    if chunk["id"] not in seen_ids and chunk["score"] >= 0.2:
+                        seen_ids.add(chunk["id"])
+                        relevant_chunks.append(chunk)
+
+                if relevant_chunks:
+                    logger.info(
+                        f"Found related content with broad search: {len(relevant_chunks)} chunks"
+                    )
+
+            # Si aún no hay nada, hacer respuesta perspicaz
+            if not relevant_chunks:
+                # Obtener temas disponibles en los documentos
+                try:
+                    all_docs = self.vector_service.get_all_documents(limit=50)
+                    available_topics = list(
+                        set(
+                            [
+                                doc.get("metadata", {}).get("source", "")
+                                for doc in all_docs
+                                if doc.get("metadata", {}).get("source")
+                            ]
+                        )
+                    )[:5]
+                except:
+                    available_topics = []
+
+                # Respuesta perspicaz basada en el historial
+                if conversation_history:
+                    # Si es seguimiento de conversación anterior
+                    no_context_prompt = f"""Eres un asistente amigable. El usuario ha hecho una pregunta sobre la que NO tienes información específica en los documentos.
+                    
+HISTORIAL RECIENTE:
+{chr(10).join([f"{'Usuario' if msg['role'] == 'user' else 'Asistente'}: {msg['content']}" for msg in conversation_history[-4:]])}
+
+PREGUNTA ACTUAL: {content}
+
+INSTRUCCIONES:
+1. NO digas directamente "no tengo información"
+2. Intenta entender qué busca el usuario basándote en el contexto de la conversación
+3. Sugiere temas relacionados que podrías tener información (si los hay)
+4. Mantén un tono conversacional y útil
+5. NO termines cada respuesta con "¿Te gustaría saber más?" - varía tus despedidas
+6. Puedes terminar con una pregunta, una afirmación amigable, o simplemente cerrar la respuesta de forma natural
+
+Respuesta:"""
+
+                    try:
+                        response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": "Eres un asistente perspicaz y conversacional.",
+                                },
+                                {"role": "user", "content": no_context_prompt},
+                            ],
+                            temperature=0.8,
+                            max_tokens=200,
+                            timeout=30,
+                        )
+                        no_context_response = response.choices[0].message.content
+                    except:
+                        # Fallback si falla el LLM
+                        if available_topics:
+                            topics_str = ", ".join(
+                                [t.replace(".pdf", "") for t in available_topics if t]
+                            )
+                            no_context_response = (
+                                f"Buena pregunta. En mis documentos tengo información sobre {topics_str}. "
+                                f"¿Sobre alguno de estos temas te gustaría que conversemos?"
+                            )
+                        else:
+                            no_context_response = (
+                                "Interesante pregunta. Cuéntame un poco más sobre lo que buscas, "
+                                "así puedo orientarte mejor con la información que tengo disponible."
+                            )
+                else:
+                    # Primera interacción sin contexto
+                    if available_topics:
+                        topics_str = ", ".join(
+                            [t.replace(".pdf", "") for t in available_topics if t]
+                        )
+                        no_context_response = (
+                            f"¡Hola! Veo que tienes documentos sobre {topics_str}. "
+                            f"Estoy listo para conversar sobre cualquiera de estos temas."
+                        )
+                    else:
+                        no_context_response = (
+                            "¡Hola! Estoy listo para ayudarte. Cuando subas documentos, podré conversar contigo "
+                            "sobre su contenido de forma natural."
+                        )
+
+                bot_message = models.Message(
+                    content=no_context_response,
+                    is_bot=True,
+                    created_at=datetime.utcnow(),
+                    user_id=user_id,
+                    session_id=session_id,
                 )
 
-        # 3. CONSTRUIR CONTEXTO Y PROMPT
+                try:
+                    self.db.add(bot_message)
+                    self.db.commit()
+                    self.db.refresh(bot_message)
+                    return MessageResponse.model_validate(bot_message)
+                except Exception as e:
+                    self.db.rollback()
+                    logger.error(f"Error saving bot response: {str(e)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Error al guardar la respuesta",
+                    )
+
+        # 4. CONSTRUIR CONTEXTO Y PROMPT CONVERSACIONAL
         context_text = "\n\n".join(
             [
-                f"[Fragmento {i + 1} - Score: {chunk['score']:.2f}]:\n{chunk['text']}"
+                f"[Fragmento {i + 1}]:\n{chunk['text']}"
                 for i, chunk in enumerate(relevant_chunks)
             ]
         )
@@ -185,44 +331,71 @@ class AIService:
             )
         )
 
-        # Prompt restrictivo: SOLO puede usar el contexto proporcionado
-        system_prompt = f"""Eres un asistente especializado que responde preguntas basándose EXCLUSIVAMENTE en la información proporcionada en el contexto.
+        # Prompt conversacional pero manteniendo RAG
+        system_prompt = f"""Eres un asistente amigable, empático y conversacional. Mantén conversaciones naturales como lo haría una persona.
 
-REGLAS IMPORTANTES:
-1. Responde ÚNICAMENTE usando la información del contexto proporcionado abajo
-2. Si la respuesta no está en el contexto, di claramente: "No tengo esa información en el documento"
-3. NO inventes información que no esté en el contexto
-4. NO uses conocimiento general externo
-5. Cita los fragmentos relevantes cuando sea apropiado
-6. Sé conciso pero completo en tus respuestas
+PERSONALIDAD:
+- Sé cálido, cercano y genuino
+- Usa lenguaje natural, evita sonar robótico
+- Muestra interés real en la conversación
+- Puedes usar emojis cuando encajen naturalmente
+- NO cites fragmentos literalmente con "[Fragmento X]" - integra la información fluidamente
 
-CONTEXTO DEL DOCUMENTO:
+RESTRICCIÓN FUNDAMENTAL:
+- Solo usa información del CONTEXTO DE DOCUMENTOS abajo
+- NUNCA inventes información externa
+- Si algo no está en el contexto, sé honesto pero mantén la conversación
+
+CONTEXTO DE DOCUMENTOS:
 {context_text}
 
-Fuentes consultadas: {", ".join(sources)}"""
+ESTRATEGIA PARA RESPUESTAS:
+1. Responde directamente a la pregunta con la información disponible
+2. Si el usuario dice "sí", "ok", "cuéntame más", etc., EXPANDE la información dando más detalles del contexto
+3. Si hay ambigüedad, pide aclaración de forma natural
+4. Mantén continuidad con temas previos de la conversación
+5. NO preguntes "¿Te gustaría saber más?" al final de cada mensaje - varía tus despedidas
+6. A veces termina la respuesta directamente, otras veces con una pregunta relevante, otras simplemente con una afirmación amigable
 
-        logger.info(f"Generating RAG response using {len(relevant_chunks)} chunks")
+Ejemplos de buenas respuestas (VARIADAS):
+- "Según los documentos, X se refiere a... Es un tema bastante interesante."
+- "La información indica que... ¿Hay algo específico sobre esto que te interese?"
+- "X está relacionado con... Como curiosidad, también se menciona Y en el mismo contexto."
+- "Perfecto, también menciona que... Esto conecta bastante bien con lo que decías antes."
 
-        # 4. LLAMAR A OPENAI CON EL CONTEXTO
-        try:
-            response = self.client.chat.completions.create(
+Evita decir "según el fragmento 1" o "en el documento se dice". Integra la información naturalmente."""
+
+        logger.info(
+            f"Generating conversational RAG response using {len(relevant_chunks)} chunks"
+        )
+
+        # Construir mensajes incluyendo historial
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(conversation_history)
+        messages.append({"role": "user", "content": content})
+
+        # 5. LLAMAR A OPENAI CON HISTORIAL Y CONTEXTO
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+            reraise=True,
+        )
+        def generate_response():
+            return self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": f"Basándote únicamente en el contexto proporcionado, responde: {content}",
-                    },
-                ],
-                temperature=0.3,  # Baja temperatura para respuestas más deterministas
-                max_tokens=1000,
+                messages=messages,
+                temperature=0.7,  # Más alto para respuestas más naturales/conversacionales
+                max_tokens=1500,
+                timeout=60,
             )
 
+        try:
+            response = generate_response()
             bot_response = response.choices[0].message.content
 
         except Exception as e:
             logger.error(f"Error calling OpenRouter: {str(e)}")
-            bot_response = "Lo siento, hubo un error al generar la respuesta. Por favor, intenta de nuevo."
+            bot_response = "Ups, parece que tuve un pequeño problema al procesar tu mensaje. ¿Podrías intentarlo de nuevo?"
 
         # 5. GUARDAR Y DEVOLVER RESPUESTA
         bot_message = models.Message(

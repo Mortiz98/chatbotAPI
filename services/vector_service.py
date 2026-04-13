@@ -1,6 +1,7 @@
 import uuid
 from typing import List, Optional
 import requests
+import urllib3
 from tenacity import retry, stop_after_attempt, wait_exponential
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -15,12 +16,23 @@ from qdrant_client.models import (
 from core.config import settings
 from core.logging_config import logger
 
+# Disable SSL warnings for development (remove in production)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 class VectorService:
     def __init__(self):
         self.client = QdrantClient(url=settings.QDRANT_URL)
         self.openrouter_api_key = settings.OPENROUTER_API_KEY
         self.collection_name = settings.QDRANT_COLLECTION
+
+        # Create session with SSL adapter for better connection handling
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10, pool_maxsize=10, max_retries=3
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def create_collection_if_not_exists(self):
         """Creates collection if it doesn't exist."""
@@ -37,8 +49,8 @@ class VectorService:
             logger.info(f"Collection '{self.collection_name}' already exists")
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=4, max=30),
         reraise=True,
     )
     def get_embedding(self, text: str) -> List[float]:
@@ -51,18 +63,30 @@ class VectorService:
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "Chatbot",
+            "HTTP-Referer": "http://localhost:8000",
+            "X-Title": "Document ChatBot",
         }
 
         payload = {"model": "openai/text-embedding-3-small", "input": text}
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 "https://openrouter.ai/api/v1/embeddings",
                 headers=headers,
                 json=payload,
-                timeout=30,
+                timeout=60,
+                verify=True,
+            )
+            response.raise_for_status()
+        except requests.exceptions.SSLError as e:
+            logger.warning(f"SSL Error, retrying with verify=False: {str(e)}")
+            # Fallback without SSL verification (development only)
+            response = self.session.post(
+                "https://openrouter.ai/api/v1/embeddings",
+                headers=headers,
+                json=payload,
+                timeout=60,
+                verify=False,
             )
             response.raise_for_status()
         except requests.exceptions.RequestException as e:

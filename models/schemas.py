@@ -62,6 +62,7 @@ class MessageInDB(MessageBase, TimestampSchema):
 class MessageResponse(MessageBase, TimestampSchema):
     id: int
     user_id: int
+    session_id: Optional[int] = None
 
 
 class ChatSession(BaseSchema):

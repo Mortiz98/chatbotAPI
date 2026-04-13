@@ -1,12 +1,14 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import JSONResponse
 import os
 from pathlib import Path
 
 from core.config import settings
 from core.logging_config import logger
+from core.security import get_current_user
 from services.document_processor import DocumentProcessor, ChunkValidator
 from services.vector_service import VectorService
+from db.models import User
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -14,10 +16,16 @@ DOCUMENTS_FOLDER = "documents"
 
 
 @router.post("/ingest")
-async def ingest_document(file: UploadFile = File(...), collection: str = None):
+async def ingest_document(
+    file: UploadFile = File(...),
+    collection: str = None,
+    current_user: User = Depends(get_current_user),
+):
     """
     Uploads a PDF, processes it and indexes it in Qdrant.
     """
+    logger.info(f"User {current_user.id} uploading document: {file.filename}")
+
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
@@ -77,7 +85,9 @@ async def ingest_document(file: UploadFile = File(...), collection: str = None):
 
 
 @router.get("/list")
-async def list_documents(collection: str = None):
+async def list_documents(
+    collection: str = None, current_user: User = Depends(get_current_user)
+):
     """
     Lists indexed documents in the collection.
     """
@@ -104,7 +114,9 @@ async def list_documents(collection: str = None):
 
 
 @router.delete("/{source}")
-async def delete_document(source: str, collection: str = None):
+async def delete_document(
+    source: str, collection: str = None, current_user: User = Depends(get_current_user)
+):
     """
     Deletes a document from the collection by filename.
     """
@@ -117,7 +129,9 @@ async def delete_document(source: str, collection: str = None):
         vector_service.collection_name = collection
         deleted_count = vector_service.delete_by_source(source)
 
-        logger.info(f"Deleted document: {source} ({deleted_count} chunks)")
+        logger.info(
+            f"User {current_user.id} deleted document: {source} ({deleted_count} chunks)"
+        )
 
         return {
             "message": "Document deleted",

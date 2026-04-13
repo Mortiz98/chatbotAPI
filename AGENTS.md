@@ -58,6 +58,18 @@ SECRET_KEY=your-secret-key           # Required for JWT
 | `routers/ai_router.py` | Chat endpoints, session ownership checks |
 | `core/rate_limit.py` | 100 req/hour per IP |
 | `core/security.py` | JWT from httpOnly cookies |
+| `frontend/` | Simple HTML/CSS/JS frontend (runs on Live Server at :5500) |
+
+## Frontend
+
+Simple frontend located in `frontend/` folder:
+```bash
+cd frontend
+python -m http.server 5500
+# Open http://localhost:5500
+```
+
+Features: Login/Register, PDF upload, chat interface, document list.
 
 ## Testing
 
@@ -78,20 +90,29 @@ curl -b cookies.txt -X POST http://localhost:8000/chat/ask \
 
 - **RAG-only**: Bot ONLY answers from uploaded documents (not general knowledge)
 - **Auth required**: All chat/document endpoints need valid cookie
-- **Threshold 0.5**: Minimum similarity score for context retrieval
+- **Threshold 0.3**: Minimum similarity score for context retrieval (changed from 0.5)
 - **Cookie secure=False**: Set for local HTTP dev (change to True in production)
 - **UUID document IDs**: Not sequential numbers
 - **SQLite default**: No PostgreSQL setup needed
+- **Conversational mode**: Bot maintains chat history and responds in conversational tone
 
 ## Common Gotchas
 
 1. **401 Unauthorized**: Cookie expired or not sent. Re-login.
-2. **"No information" response**: Document not indexed OR similarity < 0.5
+2. **"No information" response**: Document not indexed OR similarity < 0.3
 3. **Rate limited**: 100 requests/hour per IP
 4. **Qdrant connection refused**: Start Docker container first
+5. **SSL errors with OpenRouter**: May need retry or verify=False in development
 
 ## Models
 
 - **Embeddings**: `openai/text-embedding-3-small` (1536 dims)
 - **LLM**: Configurable via `OPENAI_MODEL` (default: `openai/gpt-3.5-turbo`)
 - **Provider**: OpenRouter (base_url: https://openrouter.ai/api/v1)
+
+## Recent Changes
+
+- Similarity threshold lowered from 0.5 → 0.3 for better context matching
+- Bot now maintains conversation history within sessions
+- More conversational/perspicacious responses when info is missing
+- Fixed datetime issues by using `default=datetime.utcnow` instead of `server_default`

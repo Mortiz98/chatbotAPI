@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 
 from qdrant_client import QdrantClient
 from core.config import settings
+from core.security import get_current_user
 from services.vector_service import VectorService
+from db.models import User
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -12,6 +14,7 @@ router = APIRouter(prefix="/search", tags=["search"])
 async def search_knowledge(
     q: str = Query(..., description="Search query"),
     limit: int = Query(5, description="Number of results"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Search in the vector knowledge base.
@@ -23,7 +26,7 @@ async def search_knowledge(
 
 
 @router.get("/collections")
-async def list_collections():
+async def list_collections(current_user: User = Depends(get_current_user)):
     """
     List available collections in Qdrant.
     """

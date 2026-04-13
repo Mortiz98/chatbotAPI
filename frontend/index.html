@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatBot RAG</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login/Register View -->
+        <div id="auth-view" class="view">
+            <div class="auth-container">
+                <h1>🤖 ChatBot RAG</h1>
+                <p class="subtitle">Asistente inteligente basado en documentos</p>
+                
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="showTab('login')">Iniciar Sesión</button>
+                    <button class="tab-btn" onclick="showTab('register')">Registrarse</button>
+                </div>
+
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="login-email" required placeholder="tu@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña</label>
+                        <input type="password" id="login-password" required placeholder="********">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Iniciar Sesión</button>
+                    <div id="login-error" class="error-message"></div>
+                </form>
+
+                <!-- Register Form -->
+                <form id="register-form" class="auth-form hidden">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="register-username" required placeholder="usuario123" minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="register-email" required placeholder="tu@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña</label>
+                        <input type="password" id="register-password" required placeholder="Mínimo 8 caracteres" minlength="8">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Registrarse</button>
+                    <div id="register-error" class="error-message"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Main App View -->
+        <div id="main-view" class="view hidden">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>🤖 ChatBot</h2>
+                    <button onclick="logout()" class="btn btn-small">Cerrar Sesión</button>
+                </div>
+
+                <!-- Document Upload -->
+                <div class="section">
+                    <h3>📄 Subir Documento</h3>
+                    <form id="upload-form">
+                        <input type="file" id="pdf-file" accept=".pdf" required>
+                        <button type="submit" class="btn btn-secondary btn-full">Subir PDF</button>
+                    </form>
+                    <div id="upload-status"></div>
+                </div>
+
+                <!-- Documents List -->
+                <div class="section">
+                    <h3>📚 Documentos</h3>
+                    <button onclick="loadDocuments()" class="btn btn-small">🔄 Actualizar</button>
+                    <div id="documents-list">
+                        <p class="empty">Cargando...</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Area -->
+            <main class="chat-container">
+                <div class="chat-header">
+                    <h3>💬 Chat</h3>
+                    <button onclick="newChat()" class="btn btn-secondary">Nueva Sesión</button>
+                </div>
+
+                <div id="chat-messages" class="chat-messages">
+                    <div class="welcome-message">
+                        <h4>👋 ¡Hola! Soy tu asistente de documentos</h4>
+                        <p>Sube documentos PDF y conversemos sobre su contenido.</p>
+                        <p class="note">Soy amigable y conversacional, y siempre baso mis respuestas en tus documentos.</p>
+                    </div>
+                </div>
+
+                <form id="chat-form" class="chat-input">
+                    <input 
+                        type="text" 
+                        id="message-input" 
+                        placeholder="Escribe tu mensaje..." 
+                        required
+                        autocomplete="off"
+                    >
+                    <button type="submit" class="btn btn-primary">Enviar</button>
+                </form>
+            </main>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
