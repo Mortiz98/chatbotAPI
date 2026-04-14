@@ -87,12 +87,13 @@ This project provides a **RAG (Retrieval-Augmented Generation)** system built wi
 ### Installation
 
 ```bash
-# Clone repository
-cd /home/mortiz/projects/chatbot
+# Clone the repository
+git clone <repository-url>
+cd chatbot
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -107,7 +108,7 @@ docker run -d --name qdrant \
   -v qdrant_storage:/qdrant/storage \
   qdrant/qdrant
 
-# Start application
+# Start the application
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
