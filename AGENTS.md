@@ -1,5 +1,18 @@
 # AGENTS.md - Document ChatBot (RAG)
 
+## ⚠️ Important: MVP Status
+
+This codebase is a **Minimum Viable Product (MVP)** / proof of concept. It is functional for development and demos but **NOT suitable for production deployment** without significant additional work.
+
+### Known Limitations for Production
+
+- **Rate limiting**: In-memory only (won't work with multiple workers/processes)
+- **No test coverage**: No automated tests exist
+- **CSRF protection**: Missing for cookie-based authentication
+- **Error monitoring**: No observability stack (logs only)
+- **Scalability**: Not designed for horizontal scaling
+- **File storage**: Local filesystem only (no S3/blob storage)
+
 ## Quick Start
 
 ```bash
@@ -70,21 +83,6 @@ python -m http.server 5500
 ```
 
 Features: Login/Register, PDF upload, chat interface, document list.
-
-## Testing
-
-```bash
-# Quick test
-./test_simple.sh
-
-# Or manual:
-curl -c cookies.txt -X POST http://localhost:8000/auth/login \
-  -d '{"email":"test@test.com","password":"password123"}'
-
-curl -b cookies.txt -X POST http://localhost:8000/chat/ask \
-  -H "Content-Type: application/json" \
-  -d '{"content":"What does the document say about X?"}'
-```
 
 ## Important Constraints
 
