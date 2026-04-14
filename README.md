@@ -88,7 +88,7 @@ This project provides a **RAG (Retrieval-Augmented Generation)** system built wi
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/Mortiz98/chatbotAPI.git
 cd chatbot
 
 # Create virtual environment
